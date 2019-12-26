@@ -1,0 +1,454 @@
+---
+title: "Flight Landing distance prediction"
+output:
+  html_document:
+    df_print: paged
+---
+# {.tabset}
+
+## Introduction
+
+#### **Background**
+There is a high risk of landing overrun if the aircraft’s landing distance exceeds the available
+distance. The landing distance required is affected by many factors. We use the simulated data
+provided by Professor Dr. Liu to study the factors involved and how they would impact the
+landing distance of a commercial flight.
+
+#### **Motivation**
+To reduce landing overrun
+
+#### **Goal**
+To study what factors and how they would impact the landing distance of a commercial flight
+
+#### **Steps Followed**
+1) Understanding and importing the data
+2) Merging the data
+3) Removing the duplicates and abnormal values
+4) Handling missing values
+5) Correlation analysis with respect to the target feature
+6) Identifying the significant parameters
+7) Fitting a linear regression model to the get the relationship between independent
+variables and target feature
+8) Model Diagonistic and Re fitting
+
+#### **Libraries**
+
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+## Data Preparation 
+
+#### **Collection of Data**
+The data has been simulated from statistical models. It is provided in two excel sheets with a
+total of 950 records of commercial flight observations - the landing distance and other
+parameters.
+
+#### **Data Description**
+
+The data is provided in two excel files:
+
+1. FAA2.xls : Excel file has 800 records and 8 columns. Column names : aircraft , duration,
+no_pasg, speed_ground, speed_air, height, pitch,
+
+
+2. FAA2.xls : Excel file has 150 records and 7 columns. Column names: aircraft , no_pasg,
+speed_ground, speed_air, height, pitch, distance.
+
+
+**Column description**
+
+* Aircraft: The make of an aircraft (Boeing or Airbus).
+* Duration: Flight duration between taking off and landing. The duration of a
+normal flight should always be greater than 40min.
+* No_pasg : The number of passengers in a flight.
+* Speed_ground (in miles per hour): The ground speed of an aircraft when passing over
+the threshold of the runway. If its value is less than 30MPH or greater than 140MPH, then
+the landing would be considered as abnormal.
+* Speed_air (in miles per hour): The air speed of an aircraft when passing over the
+threshold of the runway. If its value is less than 30MPH or greater than 140MPH, then the
+landing would be considered as abnormal.
+* Height (in meters): The height of an aircraft when it is passing over the threshold of the
+runway. The landing aircraft is required to be at least 6 meters high at the threshold of the
+runway.
+* Pitch (in degrees): Pitch angle of an aircraft when it is passing over the threshold of the
+runway.
+* Distance (in feet): The landing distance of an aircraft. More specifically, it refers to the
+distance between the threshold of the runway and the point where the aircraft can be fully stopped. The length of the airport runway is typically less than 6000 feet.
+
+#### **Importing the data**
+
+```{r}
+FAA1 <- read_excel("./FAA1(1).xls")
+FAA2 <- read_excel("Data2.xlsx")
+FAA1<-data.frame(FAA1)
+FAA2<-data.frame(FAA2)
+summary(FAA1)
+```
+
+
+```{r}
+summary(FAA2)
+```
+#### **Data Cleaning**
+
+We will be performing the following steps here:
+* We begin by combining the two datasets.
+* Removing the duplicates and abnormal values
+* Explore the data parameters.
+* Report the total sample size of training data.
+The data was acquired in two files FAA1.xls and FAA2.xls which were imported in FAA1 and FAA2
+dataset respectively
+
+#### **Merging Datasets**
+
+```{r}
+data <- rbind(FAA1, FAA2)
+summary(data)
+```
+
+
+#### **Removing the duplicates**
+
+```{r}
+data<-data[!duplicated(data[,c(1,3,5,8)]),]
+```
+
+The merged Dataset after removing duplicates:
+data: The final datasets after removing duplicate rows has a total 850 records and 8 columns.
+We need to check and handle the abnormal values from the dataset
+
+```{r}
+summary(data)
+```
+ 
+#### **Removing abnormal values**
+
+Abnormal value criteria specified in the data dictionary:
+* The duration should be greater than 40 mins hence we need to remove the rows which do
+not follow the condition.
+* Height has values in negative as captured by the minimum, hence we will be removing the
+height < 6 meters.
+* Since it is given that the length of the runway is typically 6000 feet, we want to remove
+landing distance values > 6000 as it is the target feature and has a high significance.
+* Speed ground values less than 30 and greater than 140 are considered abnormal and
+hence we will be removing that.
+
+
+```{r}
+data<-data[data$duration>=40 || is.na(data$duration)==TRUE,]
+data<-data[data$speed_ground>=30 && data$speed_ground<=140,]
+data<-data[data$height>=6,]
+data<-data[data$distance<=6000,]
+#view(data)
+```
+
+
+####  **Missing value Analysis**
+
+```{r}
+sapply(data, function(x)sum(is.na(x)))
+
+```
+```{r}
+sum(is.na(data$speed_air))*100/nrow(data)
+```
+```{r}
+sum(is.na(data$duration))*100/nrow(data)
+```
+
+
+**Observation** : Most of the missing values are with the airbus records. At this point of time we do not have much information about the variables hence it is not a good idea to drop the missing
+values.
+
+## Data Exploration
+
+Overview of all the parameters –
+
+**Summary Statistics of the variables**
+
+```{r}
+summary(data)
+```
+Checking data quality : The mininum and maximum values of variables abide by the normal
+value range specified for each variable, hence, the data looks good now.
+
+**Summary Statistics of variables by aircraft**
+
+```{r}
+summary(data[which(data['aircraft']=='boeing'),])
+```
+```{r}
+summary(data[which(data['aircraft']=='airbus'),])
+```
+
+**Encoding categorical variables**
+
+```{r}
+data$aircraft=ifelse(data$aircraft=='boeing',1,0)
+head(data,5)
+```
+
+
+The mean of all the variables is similar for both the aircrafts. Hence, we can combine the
+data for both the datasets and analyze it.
+
+**Investigating the speed_air missing values (Should we use imputation ? )**
+
+Speed_air has the most number of missing values. Intuitively the speed_air and
+speed_ground seems to have a correlation based on a glance at few records. Let’s look at
+the Speed_air and speed_ground correlation :
+
+```{r}
+scatter.smooth(data$speed_air,data$speed_ground)
+```
+```{r}
+cor(data[which(is.na(data$speed_air)==FALSE),c(4,5)])
+```
+
+The variables speed_air and speed_ground have a high correlation. The Proc means
+observations show that the minimum of speed_ground is 33 and the minimum of
+speed_air (the column with a maximum number of missing values) is 90. Knowing the
+high correlation between the two variables and large variance between the minimum
+values, it seems that the variability of the actual speed_air is not covered by the data
+available.
+
+
+Plotting the speed_air:
+
+```{r}
+par(mfrow=c(1,2))
+boxplot(data$speed_air)
+hist(data$speed_air)
+
+```
+The speed air does not have values below 90 -> speed_air has a truncated distribution. Hence, it is
+not a good idea to do imputation here.
+
+#### **Summary**
+
+* The two datasets had a mix of data for Airbus and Boeing. The number of unique records
+in FAA2 was 50. Hence, we merged the two datasets.
+* The summary statistics of variables by aircraft were quite similar hence we can analyze
+both the aircraft data together.
+* The final dataset (air) has a total of 838 rows - after removing duplicates and abnormal
+values. The following columns have missing values:
+Duration - 6 % missing values ( 50 records missing).
+Speed_air - 75% missing values ( 632 records missing).
+* All the duration missing values are for Airbus records.
+* Speed_air has a high correlation with speed_ground
+* Speed_air has a truncated distribution hence imputation is not a good idea for this case.
+
+## Data Exploration and Descriptive Analysis
+
+In this chapter we will try to get a broader idea about the variables and their relation with the target feature. It will also help us form the significance order of the variables, which will help us while
+modeling.
+
+#### **Analysis of variables and target feature**
+
+```{r}
+plot(data$distance~data$aircraft,xlab="distance",ylab="aircraft")
+```
+```{r}
+plot(data$distance~data$duration,xlab="distance",ylab="duration")
+```
+```{r}
+par(mfrow=c(3,2))
+plot(data$distance~data$duration,col="blue",xlab="distance",ylab="duration")
+plot(data$distance~data$no_pasg,col="blue",xlab="distance",ylab="no_pasg")
+plot(data$distance~data$speed_ground,col="red",xlab="distance",ylab="speed_ground")
+plot(data$distance~data$speed_air,col="red",xlab="distance",ylab="speed_air")
+plot(data$distance~data$height,col="blue",xlab="distance",ylab="height")
+plot(data$distance~data$pitch,col="blue",xlab="distance",ylab="pitch")
+```
+```{r}
+par(mfrow=c(3,2))
+hist(data$duration, 
+     main="Histogram for Duration", 
+     xlab="Duration", 
+     border="cadetblue2", 
+     col="cadetblue1",
+     breaks=5)
+hist(data$no_pasg, 
+     main="Histogram for Number of Passengers", 
+     xlab="no_pasg", 
+     border="cadetblue2", 
+     col="cadetblue1",
+     breaks=5)
+hist(data$duration, 
+     main="Histogram for Speed ground", 
+     xlab="speed_ground", 
+     border="cadetblue2", 
+     col="cadetblue1",
+     breaks=5)
+hist(data$speed_air, 
+     main="Histogram for speed_air", 
+     xlab="speed_air", 
+     border="cadetblue2", 
+     col="cadetblue1",
+     breaks=5)
+hist(data$height, 
+     main="Histogram for height", 
+     xlab="height", 
+     border="cadetblue2", 
+     col="cadetblue1",
+     breaks=5)
+hist(data$pitch, 
+     main="Histogram for pitch", 
+     xlab="pitch", 
+     border="cadetblue2", 
+     col="cadetblue1",
+     breaks=5)
+```
+
+**Observations**
+
+* The duration in the aircraft type= ‘airbus’ had 50 values missing. The distribution of duration kind of follows a normal distribution, hence we can go for imputation with mean as it won’t affect the distribution.We can go for imputation of duration by mean of duration.
+* As we saw that speed_air has a high correlation with speed_ground and it also has a truncated distribution - which means imputation won’t be a good idea here. Even though the scatter plot on the left shows a linear relationship between speed air and distance. I would want to drop this variable for analysis.
+
+#### **Imputation**
+```{r}
+data<-data[,c(-5)]
+data$duration <- ifelse(is.na(data$duration), mean(data$duration, na.rm=TRUE), data$duration)
+sapply(data, function(x)sum(is.na(x)))
+```
+
+**Correlation**
+
+```{r}
+cor(data)
+```
+
+
+## Statistical Modeling
+ 
+We need to map three features: speed_ground, height , pitch and aircraft to the target feature
+distance. Since the relationship seems to be linear in our prior observations. We will be using
+linear regression for multiple variables.
+
+**Linear Regression**:
+A linear model for our case will be of the form Y = $b_0$ + $b_1$ $x_1$ + $b_2$ $x_2$...$b_n$ $x_n$ + ε. The constant $b_0$ is called the intercept and the coefficients $b_1$,.. $b_n$ are the parameter estimates for the variables $x_1$,$x_2$... $x_n$ respectively. The ε is the error term.
+
+```{r}
+model1<-(lm(distance~., data = data))
+
+summary(model1)
+```
+The F-statistic comes less than 0.05 which means the model is significant. The adjusted R-squared of 0.84 suggests a strong model.
+
+Our model should satisfy the following four criteria.
+1)**bold**Linearity
+2)**bold**Independent Errors
+3)**bold**Normality assumption
+4)**bold**Equal variance
+
+Let's see the model statistics.
+```{r}
+par(mfrow = c(2, 2))
+plot(model1)
+```
+
+The residual plot Fitted values vs Residuals have constant variance but it suggests non linearity. The QQ plot suggest right skewed distribution of the residuals.Observations 109,373 and 183 seem to be the three identifiable outliers.
+
+Let's do box cox transformation of y and see the model fit.
+
+```{r}
+bc <- MASS::boxcox(distance ~ ., data = data)
+```
+
+```{r}
+(lambda <- bc$x[which.max(bc$y)])
+data$distance <- (data$distance ^ lambda - 1) / lambda
+model2<-lm(distance~.,data)
+summary(model2)
+```
+```{r}
+par(mfrow=c(2,2))
+plot(model2)
+```
+
+The plots look okay now.
+
+#### **Variable Selection**
+We will try to use Stepwise regression to get out the best model.
+
+```{r}
+attach(data)
+y<-distance
+x1<-aircraft
+x2<-duration
+x3<-no_pasg
+x4<-speed_ground
+x5<-height
+x6<-pitch
+
+```
+
+**Forward Selection**
+
+```{r}
+add1(lm(y~1,data=data), y~x1+x2+x3+x4+x5+x6, test="F")
+```
+
+
+```{r}
+add1(lm(y~x1,data=data), y~x1+x2+x3+x4+x5+x6, test="F")
+```
+
+
+```{r}
+add1(lm(y~x1+x4,data=data), y~x1+x2+x3+x4+x5+x6, test="F")
+```
+```{r}
+add1(lm(y~x1+x4+x5,data=data), y~x1+x2+x3+x4+x5+x6, test="F")
+```
+```{r}
+add1(lm(y~x1+x4+x5+x6,data=data), y~x1+x2+x3+x4+x5+x6, test="F")
+```
+```{r}
+add1(lm(y~x1+x4+x5+x6+x3,data=data), y~x1+x2+x3+x4+x5+x6, test="F")
+```
+```{r}
+model3<-lm(y~x1+x4+x5+x6+x3,data=data)
+summary(model3)
+```
+The R square did not improve much. 
+
+Let's Try **backward elimination**
+```{r}
+drop1(lm(y~x1+x2+x3+x4+x5+x6,data=data), test="F")
+```
+
+It give the same results hence we will finalize model3
+
+## Final Model
+
+```{r}
+final<-lm(distance~aircraft+no_pasg+speed_ground+height+pitch,data=data)
+summary(final)
+```
+
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(final)
+```
+
+## Summary 
+
+
+* The regression model ran with 838 records and the variables taken into account in this
+iteration are found statistically significant( as proved by the p-value).
+
+* The R-square value 88.9 is the proportion of variance in the dependent variable
+(distance) which can be predicted from the independent variables. The Adjusted R square
+values shows that 88.84% of variability is taken into account.
+
+* The p value associated with the F value is <0.001 which is lower than 0.05. Hence, we can
+conclude that the independent variables reliably predict the dependent variable.
+
+* The relationship between the variables can be explained by the regression equation :
+distance = -0.37 + 4.051 aircraft - 0.025 no_pasg + 0.321 speed_ground + 0.134 height + 0.569 pitch
+

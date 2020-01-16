@@ -1,7 +1,7 @@
 ## Predicting-Landing-distance-of-Flights
 
 ### Link to the project :
-http://rpubs.com/tanuseth/562643
+http://rpubs.com/tanuseth/flight_landing
 
 #### Background
 There is a high risk of landing overrun if the aircraft’s landing distance exceeds the available
